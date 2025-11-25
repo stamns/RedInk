@@ -13,6 +13,7 @@ class Config:
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000').split(',')
     GOOGLE_CLOUD_API_KEY = os.getenv('GOOGLE_CLOUD_API_KEY')
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
+    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')
 
     _image_providers_config = None
 

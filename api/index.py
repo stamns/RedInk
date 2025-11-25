@@ -1,3 +1,7 @@
+import os
+import sys
+
+# Add project root to path
 import sys
 import os
 

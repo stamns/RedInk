@@ -132,6 +132,20 @@ pnpm dev
 
 ---
 
+## 🚀 Vercel 部署
+
+本项目支持一键部署到 Vercel 平台。
+
+详细部署指南请参考文档：[Vercel 部署文档](docs/vercel.md)
+
+主要步骤：
+1. Fork 本仓库。
+2. 在 Vercel 中导入项目。
+3. 配置环境变量（API Keys, Storage）。
+4. 绑定 Vercel KV 实现数据持久化。
+
+---
+
 ## 🎮 使用指南
 
 ### 基础使用
