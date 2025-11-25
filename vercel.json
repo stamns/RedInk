@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python3.11",
+        "maxDuration": 60,
+        "memory": 1024
+      }
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1",
+      "check": true
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/index.html"
+    }
+  ],
+  "env": {
+    "GOOGLE_CLOUD_API_KEY": "change_me_in_dashboard",
+    "TEXT_API_KEY": "change_me_in_dashboard",
+    "IMAGE_API_KEY": "change_me_in_dashboard",
+    "IMAGE_PROVIDER": "change_me_in_dashboard",
+    "TEXT_API_BASE_URL": "change_me_in_dashboard",
+    "STORAGE_BACKEND": "change_me_in_dashboard",
+    "FLASK_DEBUG": "False",
+    "FLASK_HOST": "0.0.0.0",
+    "FLASK_PORT": "5000"
+  }
+}
