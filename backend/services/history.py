@@ -1,40 +1,25 @@
-import os
 import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from pathlib import Path
+from backend.storage import get_storage
 
 
 class HistoryService:
     def __init__(self):
-        self.history_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "history"
-        )
-        os.makedirs(self.history_dir, exist_ok=True)
-
-        self.index_file = os.path.join(self.history_dir, "index.json")
+        self.storage = get_storage()
         self._init_index()
 
     def _init_index(self):
-        if not os.path.exists(self.index_file):
-            with open(self.index_file, "w", encoding="utf-8") as f:
-                json.dump({"records": []}, f, ensure_ascii=False, indent=2)
+        if not self.storage.get_json("index"):
+            self.storage.save_json("index", {"records": []})
 
     def _load_index(self) -> Dict:
-        try:
-            with open(self.index_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {"records": []}
+        index = self.storage.get_json("index")
+        return index if index else {"records": []}
 
     def _save_index(self, index: Dict):
-        with open(self.index_file, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
-
-    def _get_record_path(self, record_id: str) -> str:
-        return os.path.join(self.history_dir, f"{record_id}.json")
+        self.storage.save_json("index", index)
 
     def create_record(
         self,
@@ -59,9 +44,7 @@ class HistoryService:
             "thumbnail": None
         }
 
-        record_path = self._get_record_path(record_id)
-        with open(record_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, ensure_ascii=False, indent=2)
+        self.storage.save_json(record_id, record)
 
         index = self._load_index()
         index["records"].insert(0, {
@@ -78,16 +61,7 @@ class HistoryService:
         return record_id
 
     def get_record(self, record_id: str) -> Optional[Dict]:
-        record_path = self._get_record_path(record_id)
-
-        if not os.path.exists(record_path):
-            return None
-
-        try:
-            with open(record_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
+        return self.storage.get_json(record_id)
 
     def update_record(
         self,
@@ -116,9 +90,7 @@ class HistoryService:
         if thumbnail is not None:
             record["thumbnail"] = thumbnail
 
-        record_path = self._get_record_path(record_id)
-        with open(record_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, ensure_ascii=False, indent=2)
+        self.storage.save_json(record_id, record)
 
         index = self._load_index()
         for idx_record in index["records"]:
@@ -141,21 +113,14 @@ class HistoryService:
             return False
 
         if record.get("images") and record["images"].get("generated"):
-            output_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "output"
-            )
             for img_file in record["images"]["generated"]:
-                img_path = os.path.join(output_dir, img_file)
-                if os.path.exists(img_path):
-                    try:
-                        os.remove(img_path)
-                    except Exception as e:
-                        print(f"删除图片失败: {img_file}, {e}")
+                try:
+                    self.storage.delete_file(img_file)
+                except Exception as e:
+                    print(f"删除图片失败: {img_file}, {e}")
 
-        record_path = self._get_record_path(record_id)
         try:
-            os.remove(record_path)
+            self.storage.delete_json(record_id)
         except Exception:
             return False
 
