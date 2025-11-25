@@ -1,6 +1,7 @@
 """API 路由"""
 import json
-from flask import Blueprint, request, jsonify, Response, send_file
+import io
+from flask import Blueprint, request, jsonify, Response, send_file, redirect
 from backend.services.outline import get_outline_service
 from backend.services.image import get_image_service
 from backend.services.history import get_history_service
@@ -126,11 +127,18 @@ def get_image(filename):
     """获取图片"""
     try:
         image_service = get_image_service()
-        filepath = image_service.get_image_path(filename)
+        storage = image_service.storage
+        
+        # Check if we should redirect (Vercel Blob) or serve (Local)
+        url = storage.get_file_url(filename)
+        if url.startswith("http"):
+            return redirect(url)
+            
+        # Serve file content directly
+        image_data = storage.get_file(filename)
+        if image_data:
+            return send_file(io.BytesIO(image_data), mimetype='image/png')
 
-        return send_file(filepath, mimetype='image/png')
-
-    except FileNotFoundError:
         return jsonify({
             "success": False,
             "error": f"图片不存在：{filename}\n可能原因：\n1. 图片已被删除\n2. 文件路径错误\n3. 图片生成失败"

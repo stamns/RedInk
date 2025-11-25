@@ -1,9 +1,10 @@
-import os
 import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from backend.utils.storage import get_storage
+from backend.storage import get_storage
+
 
 class HistoryService:
     def __init__(self):
@@ -24,6 +25,18 @@ class HistoryService:
 
     def _get_record_path(self, record_id: str) -> str:
         return f"history/{record_id}.json"
+        self._init_index()
+
+    def _init_index(self):
+        if not self.storage.get_json("index"):
+            self.storage.save_json("index", {"records": []})
+
+    def _load_index(self) -> Dict:
+        index = self.storage.get_json("index")
+        return index if index else {"records": []}
+
+    def _save_index(self, index: Dict):
+        self.storage.save_json("index", index)
 
     def create_record(
         self,
@@ -50,6 +63,7 @@ class HistoryService:
 
         record_path = self._get_record_path(record_id)
         self.storage.save(record_path, record)
+        self.storage.save_json(record_id, record)
 
         index = self._load_index()
         index["records"].insert(0, {
@@ -68,6 +82,7 @@ class HistoryService:
     def get_record(self, record_id: str) -> Optional[Dict]:
         record_path = self._get_record_path(record_id)
         return self.storage.load(record_path, as_json=True)
+        return self.storage.get_json(record_id)
 
     def update_record(
         self,
@@ -98,6 +113,7 @@ class HistoryService:
 
         record_path = self._get_record_path(record_id)
         self.storage.save(record_path, record)
+        self.storage.save_json(record_id, record)
 
         index = self._load_index()
         for idx_record in index["records"]:
@@ -127,6 +143,16 @@ class HistoryService:
 
         record_path = self._get_record_path(record_id)
         self.storage.delete(record_path)
+            for img_file in record["images"]["generated"]:
+                try:
+                    self.storage.delete_file(img_file)
+                except Exception as e:
+                    print(f"删除图片失败: {img_file}, {e}")
+
+        try:
+            self.storage.delete_json(record_id)
+        except Exception:
+            return False
 
         index = self._load_index()
         index["records"] = [r for r in index["records"] if r["id"] != record_id]

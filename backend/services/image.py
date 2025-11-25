@@ -9,6 +9,7 @@ from backend.config import Config
 from backend.generators.factory import ImageGeneratorFactory
 from backend.utils.image_compressor import compress_image
 from backend.utils.storage import get_storage
+from backend.storage import get_storage
 
 
 class ImageService:
@@ -25,6 +26,8 @@ class ImageService:
         Args:
             provider_name: 服务商名称，如果为None则使用配置文件中的激活服务商
         """
+        self.storage = get_storage()
+
         # 获取服务商配置
         if provider_name is None:
             provider_name = Config.get_active_image_provider()
@@ -58,20 +61,49 @@ class ImageService:
         with open(prompt_path, "r", encoding="utf-8") as f:
             return f.read()
 
+    def get_image_path(self, filename: str) -> str:
+        """
+        保存图片
+        获取图片访问路径或本地路径
+        """
+        # Return the storage-specific identifier/path/url
+        # If it's local storage, get_file_url might return /api/images/filename
+        # But for send_file in routes, we might need the absolute path if it's local.
+        # However, the abstraction should ideally handle this.
+        # But existing route uses send_file(filepath).
+        
+        # If storage is local, we can reconstruct the path.
+        # But better to ask storage.
+        
+        # If I use `get_file_url`, for local it returns `/api/images/...`.
+        # This is for the frontend.
+        # The route `get_image` needs to serve the file.
+        
+        # For now, let's keep get_image_path returning a URL or ID that the route can handle.
+        # If the route needs to serve file content, it should use storage.get_file(filename).
+        
+        # But wait, existing code returns `os.path.join(self.output_dir, filename)`.
+        # The route handler does: `send_file(filepath)`.
+        
+        # I need to change the route handler later.
+        # For now, let's make this return something useful.
+        return self.storage.get_file_url(filename)
+
     def _save_image(self, image_data: bytes, filename: str) -> str:
         """
         保存图片
-
+        
         Args:
             image_data: 图片二进制数据
             filename: 文件名
 
         Returns:
-            保存的文件路径
+            保存的文件名或路径
         """
         path = f"output/{filename}"
         self.storage.save(path, image_data)
         return path
+        return self.storage.save_file(filename, image_data)
 
     def _generate_single_image(
         self,
@@ -253,10 +285,15 @@ class ImageService:
                 # 读取封面图片作为参考，并立即压缩到200KB以内
                 cover_path = f"output/{filename}"
                 cover_image_data = self.storage.load(cover_path)
+                cover_image_data = self.storage.get_file(filename)
 
                 # 压缩封面图（减少内存占用和后续传输开销）
-                cover_image_data = compress_image(cover_image_data, max_size_kb=200)
-                self._task_states[task_id]["cover_image"] = cover_image_data
+                if cover_image_data:
+                    cover_image_data = compress_image(cover_image_data, max_size_kb=200)
+                    self._task_states[task_id]["cover_image"] = cover_image_data
+                else:
+                    # 如果读取失败，记录错误但继续
+                    print(f"Failed to read cover image: {filename}")
 
                 yield {
                     "event": "complete",
