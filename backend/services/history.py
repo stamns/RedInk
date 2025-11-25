@@ -2,29 +2,12 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from backend.utils.storage import get_storage
 from backend.storage import get_storage
 
 
 class HistoryService:
     def __init__(self):
         self.storage = get_storage()
-        self.index_file = "history/index.json"
-        self._init_index()
-
-    def _init_index(self):
-        if not self.storage.exists(self.index_file):
-            self.storage.save(self.index_file, {"records": []})
-
-    def _load_index(self) -> Dict:
-        data = self.storage.load(self.index_file, as_json=True)
-        return data if data else {"records": []}
-
-    def _save_index(self, index: Dict):
-        self.storage.save(self.index_file, index)
-
-    def _get_record_path(self, record_id: str) -> str:
-        return f"history/{record_id}.json"
         self._init_index()
 
     def _init_index(self):
@@ -61,8 +44,6 @@ class HistoryService:
             "thumbnail": None
         }
 
-        record_path = self._get_record_path(record_id)
-        self.storage.save(record_path, record)
         self.storage.save_json(record_id, record)
 
         index = self._load_index()
@@ -80,8 +61,6 @@ class HistoryService:
         return record_id
 
     def get_record(self, record_id: str) -> Optional[Dict]:
-        record_path = self._get_record_path(record_id)
-        return self.storage.load(record_path, as_json=True)
         return self.storage.get_json(record_id)
 
     def update_record(
@@ -111,8 +90,6 @@ class HistoryService:
         if thumbnail is not None:
             record["thumbnail"] = thumbnail
 
-        record_path = self._get_record_path(record_id)
-        self.storage.save(record_path, record)
         self.storage.save_json(record_id, record)
 
         index = self._load_index()
@@ -137,12 +114,6 @@ class HistoryService:
 
         if record.get("images") and record["images"].get("generated"):
             # Delete images
-            for img_file in record["images"]["generated"]:
-                img_path = f"output/{img_file}"
-                self.storage.delete(img_path)
-
-        record_path = self._get_record_path(record_id)
-        self.storage.delete(record_path)
             for img_file in record["images"]["generated"]:
                 try:
                     self.storage.delete_file(img_file)
