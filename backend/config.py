@@ -11,6 +11,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class Config:
+    # User Customizations for Vercel/Env
     DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     HOST = os.getenv('FLASK_HOST', '0.0.0.0')
     PORT = int(os.getenv('FLASK_PORT', 5000))
@@ -20,6 +21,7 @@ class Config:
     STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')
 
     _image_providers_config = None
+    _text_providers_config = None
 
     @staticmethod
     def _deep_merge(source, destination):
@@ -57,6 +59,7 @@ class Config:
                     file_config = yaml.safe_load(f)
                     if file_config and isinstance(file_config, dict):
                         cls._deep_merge(file_config, config)
+                    logger.debug(f"图片配置加载成功: {list(config.get('providers', {}).keys())}")
             except Exception as e:
                 logger.error(f"Error loading image_providers.yaml: {e}")
 
@@ -97,6 +100,33 @@ class Config:
         return cls._image_providers_config
 
     @classmethod
+    def load_text_providers_config(cls):
+        """加载文本生成服务商配置"""
+        if cls._text_providers_config is not None:
+            return cls._text_providers_config
+
+        config_path = Path(__file__).parent.parent / 'text_providers.yaml'
+        logger.debug(f"加载文本服务商配置: {config_path}")
+
+        if not config_path.exists():
+            logger.warning(f"文本配置文件不存在: {config_path}，使用默认配置")
+            cls._text_providers_config = {
+                'active_provider': 'google_gemini',
+                'providers': {}
+            }
+            return cls._text_providers_config
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cls._text_providers_config = yaml.safe_load(f) or {}
+            logger.debug(f"文本配置加载成功: {list(cls._text_providers_config.get('providers', {}).keys())}")
+        except yaml.YAMLError as e:
+            logger.error(f"文本配置文件 YAML 格式错误: {e}")
+            raise ValueError(f"配置文件格式错误: text_providers.yaml\n{e}")
+
+        return cls._text_providers_config
+
+    @classmethod
     def get_active_image_provider(cls):
         config = cls.load_image_providers_config()
         # 允许通过环境变量覆盖
@@ -111,19 +141,24 @@ class Config:
 
         if provider_name not in config.get('providers', {}):
             available = ', '.join(config.get('providers', {}).keys())
-            raise ValueError(
-                f"未找到图片生成服务商配置: {provider_name}\n"
-                f"可用的服务商: {available}\n"
-                "解决方案：\n"
-                "1. 检查 image_providers.yaml 文件中是否包含该服务商配置\n"
-                "2. 确认 providers 字段下有对应的服务商名称\n"
-                "3. 或修改 active_provider 为可用的服务商名称"
-            )
+            raise ValueError(f"未找到图片生成服务商配置: {provider_name}\n可用的服务商: {available}")
 
         provider_config = config['providers'][provider_name].copy()
 
+        # Handle API Key from Env (User feature)
         api_key_env = provider_config.get('api_key_env')
         if api_key_env:
             provider_config['api_key'] = os.getenv(api_key_env)
 
+        # Basic validation
+        if not provider_config.get('api_key'):
+             logger.warning(f"图片服务商 [{provider_name}] 未配置 API Key (config or env)")
+             
         return provider_config
+
+    @classmethod
+    def reload_config(cls):
+        """重新加载配置（清除缓存）"""
+        logger.info("重新加载所有配置...")
+        cls._image_providers_config = None
+        cls._text_providers_config = None

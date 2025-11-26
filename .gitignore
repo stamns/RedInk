@@ -50,11 +50,17 @@ dist-ssr/
 
 # Generated files
 output/
-history/
 
-# API configurations
+# History directory
+# 忽略所有 history 目录下的内容
+history/*
+# 但保留 .gitkeep 文件以保持目录结构
+!history/.gitkeep
+
+# API configurations (contain API keys)
 .gemini/
 image_providers.yaml
+text_providers.yaml
 
 # Logs
 *.log
