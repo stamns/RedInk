@@ -122,7 +122,14 @@ class Config:
             logger.debug(f"文本配置加载成功: {list(cls._text_providers_config.get('providers', {}).keys())}")
         except yaml.YAMLError as e:
             logger.error(f"文本配置文件 YAML 格式错误: {e}")
-            raise ValueError(f"配置文件格式错误: text_providers.yaml\n{e}")
+            raise ValueError(
+                f"配置文件格式错误: text_providers.yaml\n"
+                f"YAML 解析错误: {e}\n"
+                "解决方案：\n"
+                "1. 检查 YAML 缩进是否正确（使用空格，不要用Tab）\n"
+                "2. 检查引号是否配对\n"
+                "3. 使用在线 YAML 验证器检查格式"
+            )
 
         return cls._text_providers_config
 
