@@ -58,9 +58,11 @@
 import { RouterView, RouterLink } from 'vue-router'
 import { onMounted } from 'vue'
 import { setupAutoSave } from './stores/generator'
+import { setupApiConfigStore } from './stores/apiConfig'
 
-// 启用自动保存到 localStorage
+// 启用自动保存到 localStorage，并恢复用户配置
 onMounted(() => {
   setupAutoSave()
+  setupApiConfigStore()
 })
 </script>
