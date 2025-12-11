@@ -1,8 +1,24 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <h1 class="page-title">系统设置</h1>
-      <p class="page-subtitle">配置文本生成和图片生成的 API 服务</p>
+      <div>
+        <h1 class="page-title">系统设置</h1>
+        <p class="page-subtitle">配置文本生成和图片生成的 API 服务</p>
+      </div>
+      <button
+        class="btn btn-small btn-outline"
+        @click="handleClearCache"
+        :disabled="clearingCache || loading"
+      >
+        {{ clearingCache ? '清除中...' : '清除缓存' }}
+      </button>
+    </div>
+
+    <div v-if="saveStatusText" class="config-status-banner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 6L9 17l-5-5"></path>
+      </svg>
+      <span>{{ saveStatusText }}</span>
     </div>
 
     <div v-if="loading" class="loading-container">
@@ -311,31 +327,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { getConfig, updateConfig, type Config } from '../api'
+import { useApiConfigStore } from '../stores/apiConfig'
 
 const loading = ref(true)
 const saving = ref(false)
+const clearingCache = ref(false)
 
-// 文本生成配置
-const textConfig = ref<{
-  active_provider: string
-  providers: Record<string, any>
-}>({
-  active_provider: '',
-  providers: {}
+const apiConfigStore = useApiConfigStore()
+apiConfigStore.init()
+
+const { textConfig, imageConfig, saveMessage, lastSavedAt } = storeToRefs(apiConfigStore)
+
+const saveStatusText = computed(() => {
+  if (!saveMessage.value) return ''
+  if (!lastSavedAt.value) return saveMessage.value
+  const date = new Date(lastSavedAt.value)
+  const time = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`
+  return `${saveMessage.value} · ${time}`
 })
 
-// 图片生成配置
-const imageConfig = ref<{
-  active_provider: string
-  providers: Record<string, any>
-}>({
-  active_provider: '',
-  providers: {}
-})
-
-// 文本服务商弹窗
 const showTextProviderModal = ref(false)
 const editingTextProvider = ref<string | null>(null)
 const textProviderForm = ref({
@@ -344,15 +357,14 @@ const textProviderForm = ref({
   api_key: '',
   base_url: '',
   model: '',
-  _has_api_key: false // 标记是否已有 API Key
+  _has_api_key: false
 })
 
-// 图片服务商弹窗
 const showImageProviderModal = ref(false)
 const editingImageProvider = ref<string | null>(null)
 const imageProviderForm = ref({
   name: '',
-  type: '',
+  type: 'image_api',
   api_key: '',
   base_url: '',
   model: '',
@@ -360,57 +372,60 @@ const imageProviderForm = ref({
   _has_api_key: false
 })
 
-// 类型标签映射
-function getTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    'google_gemini': 'Gemini',
-    'openai_compatible': 'OpenAI',
-    'google_genai': 'Google GenAI'
-  }
-  return labels[type] || type
-}
-
-// 检查是否已有 API Key
 function hasExistingApiKey(form: any): boolean {
   return form._has_api_key === true
 }
 
-// 加载配置
-async function loadConfig() {
-  loading.value = true
+function sanitizeProvidersForRequest(providers: Record<string, any>) {
+  const result: Record<string, any> = {}
+  Object.entries(providers || {}).forEach(([name, provider]) => {
+    const clean: Record<string, any> = {}
+    Object.entries(provider || {}).forEach(([key, value]) => {
+      if (key === 'api_key_masked') return
+      if (value === undefined) return
+      clean[key] = value
+    })
+    result[name] = clean
+  })
+  return result
+}
+
+function buildConfigPayload(): Partial<Config> {
+  return {
+    text_generation: {
+      active_provider: textConfig.value.active_provider,
+      providers: sanitizeProvidersForRequest(textConfig.value.providers)
+    },
+    image_generation: {
+      active_provider: imageConfig.value.active_provider,
+      providers: sanitizeProvidersForRequest(imageConfig.value.providers)
+    }
+  }
+}
+
+async function loadConfig(showSpinner = true, options: { silent?: boolean } = {}) {
+  if (showSpinner) loading.value = true
   try {
     const result = await getConfig()
     if (result.success && result.config) {
-      textConfig.value = {
-        active_provider: result.config.text_generation.active_provider,
-        providers: result.config.text_generation.providers
-      }
-      imageConfig.value = result.config.image_generation
+      apiConfigStore.applyServerConfig(result.config, { silent: options.silent })
     } else {
       alert('加载配置失败: ' + (result.error || '未知错误'))
     }
   } catch (e) {
     alert('加载配置失败: ' + String(e))
   } finally {
-    loading.value = false
+    if (showSpinner) loading.value = false
   }
 }
 
-// 保存配置
 async function saveConfig() {
   saving.value = true
   try {
-    const config: Partial<Config> = {
-      text_generation: {
-        active_provider: textConfig.value.active_provider,
-        providers: textConfig.value.providers
-      },
-      image_generation: imageConfig.value
-    }
-
-    const result = await updateConfig(config)
+    const result = await updateConfig(buildConfigPayload())
     if (result.success) {
       alert(result.message || '配置已保存')
+      await loadConfig(false, { silent: true })
     } else {
       alert('保存失败: ' + (result.error || '未知错误'))
     }
@@ -421,40 +436,37 @@ async function saveConfig() {
   }
 }
 
-// 激活文本服务商
-async function activateTextProvider(name: string) {
-  textConfig.value.active_provider = name
-  await autoSaveConfig()
-}
-
-// 激活图片服务商
-async function activateImageProvider(name: string) {
-  imageConfig.value.active_provider = name
-  await autoSaveConfig()
-}
-
-// 自动保存配置
 async function autoSaveConfig() {
   try {
-    const config: Partial<Config> = {
-      text_generation: {
-        active_provider: textConfig.value.active_provider,
-        providers: textConfig.value.providers
-      },
-      image_generation: imageConfig.value
-    }
-
-    const result = await updateConfig(config)
+    const result = await updateConfig(buildConfigPayload())
     if (result.success) {
-      // 重新加载配置以获取最新的脱敏 API Key
-      await loadConfig()
+      await loadConfig(false, { silent: true })
     }
   } catch (e) {
     console.error('自动保存失败:', e)
   }
 }
 
-// 打开添加文本服务商弹窗
+async function handleClearCache() {
+  if (!confirm('确定要清除本地缓存的 API 配置吗？')) {
+    return
+  }
+  clearingCache.value = true
+  apiConfigStore.clearLocalCache()
+  await loadConfig(false, { silent: true })
+  clearingCache.value = false
+}
+
+async function activateTextProvider(name: string) {
+  apiConfigStore.setActiveTextProvider(name)
+  await autoSaveConfig()
+}
+
+async function activateImageProvider(name: string) {
+  apiConfigStore.setActiveImageProvider(name)
+  await autoSaveConfig()
+}
+
 function openAddTextProviderModal() {
   editingTextProvider.value = null
   textProviderForm.value = {
@@ -468,27 +480,24 @@ function openAddTextProviderModal() {
   showTextProviderModal.value = true
 }
 
-// 打开编辑文本服务商弹窗
 function openEditTextProviderModal(name: string, provider: any) {
   editingTextProvider.value = name
   textProviderForm.value = {
     name: name,
     type: provider.type || 'openai_compatible',
-    api_key: '', // 不显示已有的 key，让用户重新输入才会更新
+    api_key: '',
     base_url: provider.base_url || '',
     model: provider.model || '',
-    _has_api_key: !!provider.api_key // 标记是否已有 key
+    _has_api_key: !!provider.api_key
   }
   showTextProviderModal.value = true
 }
 
-// 关闭文本服务商弹窗
 function closeTextProviderModal() {
   showTextProviderModal.value = false
   editingTextProvider.value = null
 }
 
-// 保存文本服务商
 async function saveTextProvider() {
   const name = editingTextProvider.value || textProviderForm.value.name
 
@@ -502,48 +511,37 @@ async function saveTextProvider() {
     return
   }
 
-  // 新增时必须填写 API Key
   if (!editingTextProvider.value && !textProviderForm.value.api_key) {
     alert('请填写 API Key')
     return
   }
-
-  const existingProvider = textConfig.value.providers[name] || {}
 
   const providerData: any = {
     type: textProviderForm.value.type,
     model: textProviderForm.value.model
   }
 
-  // 如果填写了新的 API Key，使用新的；否则保留原有的
   if (textProviderForm.value.api_key) {
     providerData.api_key = textProviderForm.value.api_key
-  } else if (existingProvider.api_key) {
-    providerData.api_key = existingProvider.api_key
   }
 
   if (textProviderForm.value.base_url) {
     providerData.base_url = textProviderForm.value.base_url
   }
 
-  textConfig.value.providers[name] = providerData
+  apiConfigStore.setTextProvider(name, providerData)
 
   closeTextProviderModal()
   await autoSaveConfig()
 }
 
-// 删除文本服务商
 async function deleteTextProvider(name: string) {
   if (confirm(`确定要删除服务商 "${name}" 吗？`)) {
-    delete textConfig.value.providers[name]
-    if (textConfig.value.active_provider === name) {
-      textConfig.value.active_provider = ''
-    }
+    apiConfigStore.removeTextProvider(name)
     await autoSaveConfig()
   }
 }
 
-// 打开添加图片服务商弹窗
 function openAddImageProviderModal() {
   editingImageProvider.value = null
   imageProviderForm.value = {
@@ -558,12 +556,11 @@ function openAddImageProviderModal() {
   showImageProviderModal.value = true
 }
 
-// 打开编辑图片服务商弹窗
 function openEditImageProviderModal(name: string, provider: any) {
   editingImageProvider.value = name
   imageProviderForm.value = {
     name: name,
-    type: provider.type || '',
+    type: provider.type || 'image_api',
     api_key: '',
     base_url: provider.base_url || '',
     model: provider.model || '',
@@ -573,13 +570,11 @@ function openEditImageProviderModal(name: string, provider: any) {
   showImageProviderModal.value = true
 }
 
-// 关闭图片服务商弹窗
 function closeImageProviderModal() {
   showImageProviderModal.value = false
   editingImageProvider.value = null
 }
 
-// 保存图片服务商
 async function saveImageProvider() {
   const name = editingImageProvider.value || imageProviderForm.value.name
 
@@ -593,13 +588,10 @@ async function saveImageProvider() {
     return
   }
 
-  // 新增时必须填写 API Key
   if (!editingImageProvider.value && !imageProviderForm.value.api_key) {
     alert('请填写 API Key')
     return
   }
-
-  const existingProvider = imageConfig.value.providers[name] || {}
 
   const providerData: any = {
     type: imageProviderForm.value.type,
@@ -607,30 +599,23 @@ async function saveImageProvider() {
     high_concurrency: imageProviderForm.value.high_concurrency
   }
 
-  // 如果填写了新的 API Key，使用新的；否则保留原有的
   if (imageProviderForm.value.api_key) {
     providerData.api_key = imageProviderForm.value.api_key
-  } else if (existingProvider.api_key) {
-    providerData.api_key = existingProvider.api_key
   }
 
   if (imageProviderForm.value.base_url) {
     providerData.base_url = imageProviderForm.value.base_url
   }
 
-  imageConfig.value.providers[name] = providerData
+  apiConfigStore.setImageProvider(name, providerData)
 
   closeImageProviderModal()
   await autoSaveConfig()
 }
 
-// 删除图片服务商
 async function deleteImageProvider(name: string) {
   if (confirm(`确定要删除服务商 "${name}" 吗？`)) {
-    delete imageConfig.value.providers[name]
-    if (imageConfig.value.active_provider === name) {
-      imageConfig.value.active_provider = ''
-    }
+    apiConfigStore.removeImageProvider(name)
     await autoSaveConfig()
   }
 }
@@ -644,6 +629,40 @@ onMounted(() => {
 .settings-container {
   max-width: 900px;
   margin: 0 auto;
+}
+
+.config-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  color: #b91c1c;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.config-status-banner svg {
+  color: #f87171;
+}
+
+.btn-outline {
+  border: 1px solid var(--border-color);
+  background: #ffffff;
+  color: var(--text-main);
+}
+
+.btn-outline:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #fff5f5;
+}
+
+.btn-outline:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .section-header {
